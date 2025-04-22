@@ -117,7 +117,7 @@ Two buttons allow instant copying of all parameter names or values.
 
 ## 📸 Screenshots & Demo
 
-> ![Demo of ParamOrganizer](assets/ParamOrganaizer.mp4)
+> ![Demo of ParamOrganizer](assets/Demo.gif)
 
 ---
 
