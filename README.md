@@ -26,7 +26,7 @@ Even with mass‑assignment checks, testing each param one by one can take forev
 2. In Burp Suite:
    - Go to **Extender → Extensions → Add**
    - Select **Python** as the extension type
-   - Load `src/simple.py`
+   - Load `ParamOrganizer.py`
 
 ---
 
@@ -117,7 +117,7 @@ Two buttons allow instant copying of all parameter names or values.
 
 ## 📸 Screenshots & Demo
 
-> ![Demo of ParamOrganizer](media/demo.gif)
+> ![Demo of ParamOrganizer](assets/ParamOrganaizer.mp4)
 
 ---
 
