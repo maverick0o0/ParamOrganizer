@@ -20,7 +20,7 @@ Even with mass‑assignment checks, testing each param one by one can take forev
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/<your-username>/ParamOrganizer.git
+   git clone https://github.com/maverick0o0/ParamOrganizer.git
    ```
 
 2. In Burp Suite:
