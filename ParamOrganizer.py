@@ -1,7 +1,7 @@
 from burp import IBurpExtender, IContextMenuFactory, ITab, IContextMenuInvocation
-from javax.swing import JMenuItem, JPanel, JScrollPane, JTable, JTabbedPane, JPopupMenu, JTextArea, JFrame, JOptionPane, JButton, JLabel, JCheckBox, TransferHandler, JFileChooser
-from javax.swing.table import DefaultTableModel
-from javax.swing import DropMode
+from javax.swing import JMenuItem, JPanel, JScrollPane, JTable, JTabbedPane, JPopupMenu, JTextArea, JTextField, JFrame, JOptionPane, JButton, JLabel, JCheckBox, TransferHandler, JFileChooser
+from javax.swing.table import DefaultTableModel, TableRowSorter
+from javax.swing import DropMode, RowFilter
 from java.awt import BorderLayout, FlowLayout, Toolkit
 from java.awt.event import MouseAdapter, KeyAdapter, KeyEvent
 from java.awt.datatransfer import DataFlavor, Transferable, StringSelection
@@ -156,6 +156,15 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
             model.setValueAt(p, i, 0)
             model.setValueAt("%s (%s)" % (v, s), i, 1)
             model.setValueAt(s, i, 2)
+        # search/filter bar
+        sorter = TableRowSorter(model)
+        table.setRowSorter(sorter)
+        searchField = JTextField(15)
+        class SearchKey(KeyAdapter):
+            def keyReleased(self, e):
+                txt = searchField.getText()
+                sorter.setRowFilter(RowFilter.regexFilter("(?i)" + re.escape(txt), 0, 1) if txt else None)
+        searchField.addKeyListener(SearchKey())
         table.getColumnModel().removeColumn(table.getColumnModel().getColumn(2))
 
         # controls
@@ -166,6 +175,7 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
         btn_add = JButton("Add Entry")
         btn_export = JButton("Export JSON")
         btn_import = JButton("Import JSON")
+        btn_hl = JButton("Highlight")
 
         def copy_col(ci):
             txt = [str(model.getValueAt(r,ci)) for r in range(model.getRowCount())]
@@ -214,10 +224,8 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
             chooser.setDialogTitle("Open JSON")
             if chooser.showOpenDialog(None) == JFileChooser.APPROVE_OPTION:
                 f = chooser.getSelectedFile()
-                # read raw bytes and convert to string
                 content_bytes = Files.readAllBytes(Paths.get(f.getAbsolutePath()))
                 content = String(content_bytes, "UTF-8")
-                # convert java.lang.String to Python str
                 content = content.toString()
                 items = json.loads(content)
                 model.setRowCount(0)
@@ -230,6 +238,22 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
                     model.addRow([p, "%s (%s)" % (v, s), s])
                     rec['custom'].append((p, v, s))
         btn_import.addActionListener(on_import)
+        # Highlight selected parameter
+        def do_highlight(e):
+            row = table.getSelectedRow()
+            if row < 0: return
+            param = model.getValueAt(table.convertRowIndexToModel(row), 0)
+            # simple toggle highlight background for selected row
+            # store in custom property
+            rec = self.records.setdefault(uid, {'model':model,'table':table,'custom':[],'highlight':{}})
+            current = rec['highlight'].get(param)
+            color = JOptionPane.showInputDialog(None, "Highlight color for %s:" % param, "Color", JOptionPane.QUESTION_MESSAGE, None, ['None','Red','Green','Blue','Yellow'], 'Yellow')
+            if color == 'None' or color is None:
+                rec['highlight'].pop(param, None)
+            else:
+                rec['highlight'][param] = color
+            table.repaint()
+        btn_hl.addActionListener(do_highlight)
 
         def toggle_full(e):
             show = cb_full.isSelected()
@@ -245,7 +269,7 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
 
         panel = JPanel(BorderLayout())
         top = JPanel(FlowLayout(FlowLayout.LEFT))
-        for comp in (cb_full, cb_hide, btn_copy_p, btn_copy_v, btn_add, btn_export, btn_import):
+        for comp in (searchField, cb_full, cb_hide, btn_copy_p, btn_copy_v, btn_add, btn_export, btn_import, btn_hl):
             top.add(comp)
         panel.add(top, BorderLayout.NORTH)
         panel.add(JScrollPane(table), BorderLayout.CENTER)
@@ -267,7 +291,7 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
         self.tabbedPane.setTabComponentAt(idx, hdr)
 
         # store record
-        self.records[uid] = {'model': model, 'table': table, 'custom': []}
+        self.records[uid] = {'model': model, 'table': table, 'custom': [], 'highlight': {}}
 
     def extract_params(self, helpers, msg_bytes, is_req, out_map):
         try:
@@ -275,8 +299,15 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
             body = msg_bytes[info.getBodyOffset():].tostring()
             headers = info.getHeaders()
             if any('application/json' in h.lower() for h in headers):
-                data = json.loads(body)
-                self.flatten_json("", data, out_map)
+                try:
+                    data = json.loads(body)
+                    self.flatten_json("", data, out_map)
+                except Exception:
+                    # fallback to URL-encoded parsing for non-JSON bodies
+                    for part in body.split("&"):
+                        if "=" in part:
+                            k,v = part.split("=",1)
+                            out_map[k] = v
             else:
                 for part in body.split("&"):
                     if "=" in part:
@@ -320,7 +351,6 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
             fr.setSize(700, 500)
             fr.setVisible(True)
         item.addActionListener(on_show)
-        # Add delete option for selected entries
         delete_item = JMenuItem("Delete Entry(s)")
         popup.add(delete_item)
         def on_delete(evt):
@@ -330,7 +360,6 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
             model = rec['model']
             custom = rec['custom']
             rows = table.getSelectedRows()
-            # remove from bottom to top
             for row in sorted(rows, reverse=True):
                 key = model.getValueAt(row, 0)
                 val = model.getValueAt(row, 1).split(' ')[0]
@@ -350,7 +379,6 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, ITab):
             def mousePressed(self, e): maybe_show(e)
             def mouseReleased(self, e): maybe_show(e)
         table.addMouseListener(PopupListener())
-        # Add Delete key shortcut to remove selected entries
         class DeleteKeyListener(KeyAdapter):
             def keyPressed(self, e):
                 if e.getKeyCode() == KeyEvent.VK_DELETE:
